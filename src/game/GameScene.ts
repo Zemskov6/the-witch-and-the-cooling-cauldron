@@ -13,12 +13,16 @@ export class GameScene extends Phaser.Scene {
   private cauldron!: Phaser.GameObjects.Arc;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd!: Record<'up' | 'down' | 'left' | 'right', Phaser.Input.Keyboard.Key>;
+  private pauseKeys!: Phaser.Input.Keyboard.Key[];
+  private pauseButton!: Phaser.GameObjects.Container;
+  private pauseOverlay: Phaser.GameObjects.Container | null = null;
   private progressText!: Phaser.GameObjects.Text;
   private heatText!: Phaser.GameObjects.Text;
   private heatBar!: Phaser.GameObjects.Rectangle;
   private resultText!: Phaser.GameObjects.Text;
   private heat = HEAT_MAX;
   private collected = 0;
+  private paused = false;
   private gameOver = false;
 
   constructor() {
@@ -29,8 +33,24 @@ export class GameScene extends Phaser.Scene {
     const { width, height } = this.scale;
     this.heat = HEAT_MAX;
     this.collected = 0;
+    this.paused = false;
     this.gameOver = false;
     this.ingredients = [];
+
+    this.pauseButton = this.add
+      .container(24, 20)
+      .setDepth(1)
+      .setSize(112, 40)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => this.togglePause());
+    this.pauseButton.add([
+      this.add.rectangle(56, 20, 112, 40, 0x475569).setOrigin(0.5),
+      this.add.text(56, 20, 'ПАУЗА', {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: '16px',
+        color: '#ffffff',
+      }).setOrigin(0.5),
+    ]);
 
     this.add
       .text(width / 2, 20, 'Ведьма и остывающий котёл', {
@@ -41,7 +61,7 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5, 0);
 
     this.add
-      .text(width / 2, 58, 'Стрелки / WASD — двигаться и собирать ингредиенты', {
+      .text(width / 2, 58, 'Стрелки / WASD — движение   P / Esc — пауза', {
         fontFamily: 'system-ui, sans-serif',
         fontSize: '17px',
         color: '#cbd5e1',
@@ -94,10 +114,19 @@ export class GameScene extends Phaser.Scene {
       left: Phaser.Input.Keyboard.KeyCodes.A,
       right: Phaser.Input.Keyboard.KeyCodes.D,
     }) as Record<'up' | 'down' | 'left' | 'right', Phaser.Input.Keyboard.Key>;
+    this.pauseKeys = [
+      this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.P),
+      this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC),
+    ];
   }
 
   update(_time: number, delta: number): void {
     if (this.gameOver) return;
+
+    if (this.pauseKeys.some((key) => Phaser.Input.Keyboard.JustDown(key))) {
+      this.togglePause();
+    }
+    if (this.paused) return;
 
     const seconds = delta / 1000;
     let dx = 0;
@@ -120,6 +149,43 @@ export class GameScene extends Phaser.Scene {
     this.checkIngredient();
 
     if (this.heat <= 0) this.endGame(false);
+  }
+
+  private togglePause(): void {
+    if (this.gameOver) return;
+
+    this.paused = !this.paused;
+    if (this.paused) {
+      const overlay = this.add.container(this.scale.width / 2, this.scale.height / 2).setDepth(10);
+      overlay.add([
+        this.add.rectangle(0, 0, this.scale.width, this.scale.height, 0x020617, 0.75),
+        this.add.text(0, -42, 'Пауза', {
+          fontFamily: 'system-ui, sans-serif',
+          fontSize: '36px',
+          color: '#ffffff',
+        }).setOrigin(0.5),
+      ]);
+
+      const resumeButton = this.add
+        .container(0, 32)
+        .setSize(220, 56)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => this.togglePause());
+      resumeButton.add([
+        this.add.rectangle(0, 0, 220, 56, 0x7c3aed),
+        this.add.text(0, 0, 'Продолжить', {
+          fontFamily: 'system-ui, sans-serif',
+          fontSize: '20px',
+          color: '#ffffff',
+        }).setOrigin(0.5),
+      ]);
+      overlay.add(resumeButton);
+      this.pauseOverlay = overlay;
+      return;
+    }
+
+    this.pauseOverlay?.destroy(true);
+    this.pauseOverlay = null;
   }
 
   private keepPlayerOnScreen(): void {
