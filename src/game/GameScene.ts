@@ -1,17 +1,6 @@
 import Phaser from 'phaser';
 import witchImage from '../assets/witch.svg';
-
-const PLAYER_SPEED = 360;
-const PHASE_TWO_PLAYER_SPEED = 300;
-const HEAT_MAX = 100;
-const PHASE_ONE_HEAT_DRAIN_PER_SECOND = 4;
-const PHASE_TWO_HEAT_DRAIN_PER_SECOND = 10;
-const PHASE_TWO_START_SECONDS = 15;
-const PHASE_ONE_NAME = 'Фаза 1 — Разогрев';
-const PHASE_TWO_NAME = 'Фаза 2 — Испытание';
-const INGREDIENTS_NEEDED = 12;
-const INGREDIENTS_ON_FIELD = 5;
-const HEAT_BAR_WIDTH = 200;
+import { GAME_SETTINGS } from './settings';
 
 export class GameScene extends Phaser.Scene {
   private player!: Phaser.GameObjects.Image;
@@ -29,9 +18,8 @@ export class GameScene extends Phaser.Scene {
   private heatText!: Phaser.GameObjects.Text;
   private heatBar!: Phaser.GameObjects.Rectangle;
   private resultText!: Phaser.GameObjects.Text;
-  private heat = HEAT_MAX;
+  private heat: number = GAME_SETTINGS.heatMax;
   private collected = 0;
-  private sessionElapsedSeconds = 0;
   private phaseTwo = false;
   private paused = false;
   private gameOver = false;
@@ -46,9 +34,8 @@ export class GameScene extends Phaser.Scene {
 
   create(): void {
     const { width, height } = this.scale;
-    this.heat = HEAT_MAX;
+    this.heat = GAME_SETTINGS.heatMax;
     this.collected = 0;
-    this.sessionElapsedSeconds = 0;
     this.phaseTwo = false;
     this.paused = false;
     this.gameOver = false;
@@ -95,7 +82,7 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.player = this.add.image(70, 150, 'witch').setDisplaySize(64, 72);
-    for (let i = 0; i < INGREDIENTS_ON_FIELD; i += 1) {
+    for (let i = 0; i < GAME_SETTINGS.ingredientsOnField; i += 1) {
       this.spawnIngredient();
     }
     this.phaseText = this.add.text(24, height - 188, '', {
@@ -124,7 +111,7 @@ export class GameScene extends Phaser.Scene {
       color: '#ffffff',
     });
     this.heatBar = this.add
-      .rectangle(24, height - 42, HEAT_BAR_WIDTH, 16, 0xf97316)
+      .rectangle(24, height - 42, GAME_SETTINGS.heatBarWidth, 16, 0xf97316)
       .setOrigin(0, 0.5);
     this.resultText = this.add.text(width / 2, height / 2, '', {
       fontFamily: 'system-ui, sans-serif',
@@ -161,15 +148,6 @@ export class GameScene extends Phaser.Scene {
     if (this.paused) return;
 
     const seconds = delta / 1000;
-    const phaseOneSeconds = Math.min(
-      seconds,
-      Math.max(0, PHASE_TWO_START_SECONDS - this.sessionElapsedSeconds),
-    );
-    const phaseTwoSeconds = seconds - phaseOneSeconds;
-    this.sessionElapsedSeconds += seconds;
-    const enteringPhaseTwo = !this.phaseTwo && this.sessionElapsedSeconds >= PHASE_TWO_START_SECONDS;
-    this.phaseTwo = this.sessionElapsedSeconds >= PHASE_TWO_START_SECONDS;
-    if (enteringPhaseTwo) this.showPhaseTwoAnnouncement();
 
     let dx = 0;
     let dy = 0;
@@ -181,15 +159,18 @@ export class GameScene extends Phaser.Scene {
 
     if (dx !== 0 || dy !== 0) {
       const length = Math.hypot(dx, dy);
-      const distance = PLAYER_SPEED * phaseOneSeconds + PHASE_TWO_PLAYER_SPEED * phaseTwoSeconds;
-      this.player.x += (dx / length) * distance;
-      this.player.y += (dy / length) * distance;
+      const speed = this.phaseTwo
+        ? GAME_SETTINGS.phaseTwoPlayerSpeed
+        : GAME_SETTINGS.playerSpeed;
+      this.player.x += (dx / length) * speed * seconds;
+      this.player.y += (dy / length) * speed * seconds;
     }
 
     this.keepPlayerOnScreen();
-    const heatLoss =
-      PHASE_ONE_HEAT_DRAIN_PER_SECOND * phaseOneSeconds +
-      PHASE_TWO_HEAT_DRAIN_PER_SECOND * phaseTwoSeconds;
+    const heatDrain = this.phaseTwo
+      ? GAME_SETTINGS.phaseTwoHeatDrainPerSecond
+      : GAME_SETTINGS.phaseOneHeatDrainPerSecond;
+    const heatLoss = heatDrain * seconds;
     this.heat = Math.max(0, this.heat - heatLoss);
     this.updateHud();
     this.checkIngredient();
@@ -296,14 +277,22 @@ export class GameScene extends Phaser.Scene {
       this.ingredients.splice(i, 1);
       this.collected += 1;
 
-      if (this.collected >= INGREDIENTS_NEEDED) {
+      if (
+        !this.phaseTwo &&
+        this.collected >= GAME_SETTINGS.phaseTwoProgressThreshold
+      ) {
+        this.phaseTwo = true;
+        this.showPhaseTwoAnnouncement();
+      }
+
+      if (this.collected >= GAME_SETTINGS.ingredientsNeeded) {
         this.updateHud();
         this.endGame(true);
         return;
       }
     }
 
-    while (this.ingredients.length < INGREDIENTS_ON_FIELD) {
+    while (this.ingredients.length < GAME_SETTINGS.ingredientsOnField) {
       this.spawnIngredient();
     }
 
@@ -322,21 +311,25 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateHud(): void {
-    this.phaseText.setText(this.phaseTwo ? PHASE_TWO_NAME : PHASE_ONE_NAME);
+    this.phaseText.setText(
+      this.phaseTwo ? GAME_SETTINGS.phaseTwoName : GAME_SETTINGS.phaseOneName,
+    );
     this.phaseText.setColor(this.phaseTwo ? '#fbbf24' : '#ffffff');
     this.phaseTimerText.setText(
       this.phaseTwo
         ? 'Фаза 2 началась'
-        : `До фазы 2: ${Math.ceil(PHASE_TWO_START_SECONDS - this.sessionElapsedSeconds)} с`,
+        : `До фазы 2: ${this.collected} / ${GAME_SETTINGS.phaseTwoProgressThreshold} ингредиентов`,
     );
     this.phaseDetailsText.setText(
       this.phaseTwo
-        ? `Скорость: ${PHASE_TWO_PLAYER_SPEED} · котёл теряет ${PHASE_TWO_HEAT_DRAIN_PER_SECOND}% тепла/с`
-        : `Скорость: ${PLAYER_SPEED} · котёл теряет ${PHASE_ONE_HEAT_DRAIN_PER_SECOND}% тепла/с`,
+        ? `Скорость: ${GAME_SETTINGS.phaseTwoPlayerSpeed} · котёл теряет ${GAME_SETTINGS.phaseTwoHeatDrainPerSecond}% тепла/с`
+        : `Скорость: ${GAME_SETTINGS.playerSpeed} · котёл теряет ${GAME_SETTINGS.phaseOneHeatDrainPerSecond}% тепла/с`,
     );
-    this.progressText.setText(`Ингредиенты: ${this.collected} / ${INGREDIENTS_NEEDED}`);
+    this.progressText.setText(
+      `Ингредиенты: ${this.collected} / ${GAME_SETTINGS.ingredientsNeeded}`,
+    );
     this.heatText.setText(`Тепло котла: ${Math.ceil(this.heat)}%`);
-    this.heatBar.width = HEAT_BAR_WIDTH * (this.heat / HEAT_MAX);
+    this.heatBar.width = GAME_SETTINGS.heatBarWidth * (this.heat / GAME_SETTINGS.heatMax);
     this.heatBar.fillColor = this.heat < 30 ? 0xef4444 : 0xf97316;
   }
 
