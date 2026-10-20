@@ -1,14 +1,20 @@
 import Phaser from 'phaser';
+import witchImage from '../assets/witch.svg';
 
 const PLAYER_SPEED = 360;
+const PHASE_TWO_PLAYER_SPEED = 300;
 const HEAT_MAX = 100;
-const HEAT_DRAIN_PER_SECOND = 8;
-const INGREDIENTS_NEEDED = 8;
+const PHASE_ONE_HEAT_DRAIN_PER_SECOND = 4;
+const PHASE_TWO_HEAT_DRAIN_PER_SECOND = 10;
+const PHASE_TWO_START_SECONDS = 15;
+const PHASE_ONE_NAME = 'Фаза 1 — Разогрев';
+const PHASE_TWO_NAME = 'Фаза 2 — Испытание';
+const INGREDIENTS_NEEDED = 12;
 const INGREDIENTS_ON_FIELD = 5;
 const HEAT_BAR_WIDTH = 200;
 
 export class GameScene extends Phaser.Scene {
-  private player!: Phaser.GameObjects.Rectangle;
+  private player!: Phaser.GameObjects.Image;
   private ingredients: Phaser.GameObjects.Arc[] = [];
   private cauldron!: Phaser.GameObjects.Arc;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -16,12 +22,17 @@ export class GameScene extends Phaser.Scene {
   private pauseKeys!: Phaser.Input.Keyboard.Key[];
   private pauseButton!: Phaser.GameObjects.Container;
   private pauseOverlay: Phaser.GameObjects.Container | null = null;
+  private phaseText!: Phaser.GameObjects.Text;
+  private phaseTimerText!: Phaser.GameObjects.Text;
+  private phaseDetailsText!: Phaser.GameObjects.Text;
   private progressText!: Phaser.GameObjects.Text;
   private heatText!: Phaser.GameObjects.Text;
   private heatBar!: Phaser.GameObjects.Rectangle;
   private resultText!: Phaser.GameObjects.Text;
   private heat = HEAT_MAX;
   private collected = 0;
+  private sessionElapsedSeconds = 0;
+  private phaseTwo = false;
   private paused = false;
   private gameOver = false;
 
@@ -29,10 +40,16 @@ export class GameScene extends Phaser.Scene {
     super('GameScene');
   }
 
+  preload(): void {
+    this.load.image('witch', witchImage);
+  }
+
   create(): void {
     const { width, height } = this.scale;
     this.heat = HEAT_MAX;
     this.collected = 0;
+    this.sessionElapsedSeconds = 0;
+    this.phaseTwo = false;
     this.paused = false;
     this.gameOver = false;
     this.ingredients = [];
@@ -77,10 +94,25 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    this.player = this.add.rectangle(70, 150, 42, 42, 0xa855f7);
+    this.player = this.add.image(70, 150, 'witch').setDisplaySize(64, 72);
     for (let i = 0; i < INGREDIENTS_ON_FIELD; i += 1) {
       this.spawnIngredient();
     }
+    this.phaseText = this.add.text(24, height - 188, '', {
+      fontFamily: 'system-ui, sans-serif',
+      fontSize: '18px',
+      color: '#ffffff',
+    });
+    this.phaseTimerText = this.add.text(24, height - 164, '', {
+      fontFamily: 'system-ui, sans-serif',
+      fontSize: '16px',
+      color: '#cbd5e1',
+    });
+    this.phaseDetailsText = this.add.text(24, height - 140, '', {
+      fontFamily: 'system-ui, sans-serif',
+      fontSize: '15px',
+      color: '#cbd5e1',
+    });
     this.progressText = this.add.text(24, height - 112, '', {
       fontFamily: 'system-ui, sans-serif',
       fontSize: '20px',
@@ -129,6 +161,16 @@ export class GameScene extends Phaser.Scene {
     if (this.paused) return;
 
     const seconds = delta / 1000;
+    const phaseOneSeconds = Math.min(
+      seconds,
+      Math.max(0, PHASE_TWO_START_SECONDS - this.sessionElapsedSeconds),
+    );
+    const phaseTwoSeconds = seconds - phaseOneSeconds;
+    this.sessionElapsedSeconds += seconds;
+    const enteringPhaseTwo = !this.phaseTwo && this.sessionElapsedSeconds >= PHASE_TWO_START_SECONDS;
+    this.phaseTwo = this.sessionElapsedSeconds >= PHASE_TWO_START_SECONDS;
+    if (enteringPhaseTwo) this.showPhaseTwoAnnouncement();
+
     let dx = 0;
     let dy = 0;
 
@@ -139,12 +181,16 @@ export class GameScene extends Phaser.Scene {
 
     if (dx !== 0 || dy !== 0) {
       const length = Math.hypot(dx, dy);
-      this.player.x += (dx / length) * PLAYER_SPEED * seconds;
-      this.player.y += (dy / length) * PLAYER_SPEED * seconds;
+      const distance = PLAYER_SPEED * phaseOneSeconds + PHASE_TWO_PLAYER_SPEED * phaseTwoSeconds;
+      this.player.x += (dx / length) * distance;
+      this.player.y += (dy / length) * distance;
     }
 
     this.keepPlayerOnScreen();
-    this.heat = Math.max(0, this.heat - HEAT_DRAIN_PER_SECOND * seconds);
+    const heatLoss =
+      PHASE_ONE_HEAT_DRAIN_PER_SECOND * phaseOneSeconds +
+      PHASE_TWO_HEAT_DRAIN_PER_SECOND * phaseTwoSeconds;
+    this.heat = Math.max(0, this.heat - heatLoss);
     this.updateHud();
     this.checkIngredient();
 
@@ -188,10 +234,50 @@ export class GameScene extends Phaser.Scene {
     this.pauseOverlay = null;
   }
 
+  private showPhaseTwoAnnouncement(): void {
+    const announcement = this.add
+      .container(this.scale.width / 2, this.scale.height / 2)
+      .setDepth(5)
+      .setAlpha(0)
+      .setScale(0.7);
+    announcement.add([
+      this.add.text(0, -12, 'ФАЗА 2', {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: '48px',
+        color: '#fbbf24',
+        stroke: '#3b0764',
+        strokeThickness: 8,
+        fontStyle: 'bold',
+      }).setOrigin(0.5),
+      this.add.text(0, 34, 'Испытание', {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: '22px',
+        color: '#ffffff',
+        stroke: '#3b0764',
+        strokeThickness: 5,
+      }).setOrigin(0.5),
+    ]);
+
+    this.tweens.add({
+      targets: announcement,
+      alpha: 1,
+      scale: 1,
+      duration: 350,
+      yoyo: true,
+      hold: 1400,
+      onComplete: () => announcement.destroy(),
+    });
+  }
+
   private keepPlayerOnScreen(): void {
-    const half = this.player.width / 2;
-    this.player.x = Phaser.Math.Clamp(this.player.x, half, this.scale.width - half);
-    this.player.y = Phaser.Math.Clamp(this.player.y, 110 + half, this.scale.height - half);
+    const halfWidth = this.player.width / 2;
+    const halfHeight = this.player.height / 2;
+    this.player.x = Phaser.Math.Clamp(this.player.x, halfWidth, this.scale.width - halfWidth);
+    this.player.y = Phaser.Math.Clamp(
+      this.player.y,
+      110 + halfHeight,
+      this.scale.height - halfHeight,
+    );
   }
 
   private checkIngredient(): void {
@@ -236,6 +322,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateHud(): void {
+    this.phaseText.setText(this.phaseTwo ? PHASE_TWO_NAME : PHASE_ONE_NAME);
+    this.phaseText.setColor(this.phaseTwo ? '#fbbf24' : '#ffffff');
+    this.phaseTimerText.setText(
+      this.phaseTwo
+        ? 'Фаза 2 началась'
+        : `До фазы 2: ${Math.ceil(PHASE_TWO_START_SECONDS - this.sessionElapsedSeconds)} с`,
+    );
+    this.phaseDetailsText.setText(
+      this.phaseTwo
+        ? `Скорость: ${PHASE_TWO_PLAYER_SPEED} · котёл теряет ${PHASE_TWO_HEAT_DRAIN_PER_SECOND}% тепла/с`
+        : `Скорость: ${PLAYER_SPEED} · котёл теряет ${PHASE_ONE_HEAT_DRAIN_PER_SECOND}% тепла/с`,
+    );
     this.progressText.setText(`Ингредиенты: ${this.collected} / ${INGREDIENTS_NEEDED}`);
     this.heatText.setText(`Тепло котла: ${Math.ceil(this.heat)}%`);
     this.heatBar.width = HEAT_BAR_WIDTH * (this.heat / HEAT_MAX);
